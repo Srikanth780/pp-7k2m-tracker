@@ -60,6 +60,9 @@ nav button.on{background:var(--ac);color:#fff;font-weight:600}
 .pad{display:grid;grid-template-columns:repeat(3,76px);gap:14px;margin-top:8px}.pad button,.pad span{width:76px;height:76px}
 .pad button{border-radius:50%;font-size:26px;background:rgba(255,255,255,.13);color:#fff;border:0;padding:0}
 .shake{animation:sh .35s}@keyframes sh{20%{transform:translateX(-10px)}40%{transform:translateX(10px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
+.ds{font-size:12px;color:var(--mu);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
+.ds.wr{font-size:14px;font-weight:600;color:var(--tx)}
+.ds2{font-size:13px;color:var(--mu);background:var(--bg);border-radius:12px;padding:8px 10px;margin:8px 0 0;word-break:break-word}
 </style></head><body>
 <div id="lock" role="dialog" aria-label="Enter mPIN">
 <svg width="56" height="62" viewBox="0 0 40 44" aria-hidden="true"><defs><linearGradient id="lg2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1d8a72"/><stop offset="1" stop-color="#0a3f35"/></linearGradient></defs><path d="M20 2l16 6v12c0 10-7 17-16 22C11 37 4 30 4 20V8z" fill="url(#lg2)" stroke="#e3c06a" stroke-width="1.2"/><text x="20" y="28" text-anchor="middle" font-size="19" font-weight="700" fill="#e3c06a" font-family="Georgia,serif">₹</text></svg>
@@ -86,7 +89,7 @@ const CATS={"Food & Dining":["swiggy","zomato","dominos","mcdonald","kfc","starb
 "Health":["pharmacy","apollo","medplus","hospital","clinic","1mg","pharmeasy","diagnostic"],
 "Education":["udemy","coursera","school","college","tuition","byjus","fees"],
 "Subscriptions":["netflix","spotify","hotstar","primevideo","youtube","icloud","applemedia","googleplay","sonyliv","zee5"],
-"Transfers":[],"Investments":["zerodha","groww","upstox","mutualfund","sip","kuvera"],"Other":[]};
+"Transfers":[],"Investments":["ppf","nationalpension","npstrust","fixeddeposit","recurringdeposit"],"Stocks / MF":["zerodha","groww","upstox","angelone","angelbroking","5paisa","indmoney","paytmmoney","smallcase","kuvera","mutualfund","mfutility","bsestar","iccl","indianclearing","nsccl","nseclearing","sip","camsonline","kfintech","hdfcsec","icicidirect","sharekhan","motilalos","motilaloswal"],"Gold / Silver":["sovereigngold","sgb","digitalgold","safegold","augmont","mmtc","goldbees","goldetf","silveretf","goldbond","tanishq","malabargold","kalyanjewel","joyalukkas","caratlane","senco","pngadgil","tbztheoriginal","bullion","jewel"],"Other":[]};
 const COL=["#0f5c4d","#c9a24a","#3b8ea5","#c0463a","#7a5ea8","#4f9d69","#d1792f","#9a6b4f","#5e7f8c","#b8508a","#7c8f3b","#3a6ea5","#8a8a8a"];
 const KEY="eg_v1";let S={tx:[],rules:{},budgets:{},seen:{},accts:[]};
 try{const r=localStorage.getItem(KEY);if(r)S=Object.assign(S,JSON.parse(r))}catch(e){}
@@ -224,7 +227,7 @@ function toLines(items){
 }
 const dText=(c,h)=>{
   if(!(h&&h.desc))return c.s;
-  return c.its.filter(i=>i.x>=h.desc.x0-12&&i.x<h.dEnd).map(i=>{
+  return c.its.filter(i=>i.x>=h.dStart&&i.x<h.dEnd).map(i=>{
     if(i.x+i.w<=h.dEnd+1||!i.s.length||!(i.w>0))return i.s.trim();
     const cw=i.w/i.s.length;return i.s.slice(0,Math.max(1,Math.floor((h.dEnd-i.x)/cw))).trim();   /* text run runs into the next column: cut it there */
   }).filter(Boolean).join(" ");
@@ -249,21 +252,21 @@ function hdrKeys(ln){
   });
   const n=Object.keys(k).length;
   if(!(n>=3&&(k.date||k.desc)&&(k.debit||k.credit||k.amt||k.bal)))return null;
-  if(k.desc){const nx=ln.cells.filter(c=>c.x0>k.desc.x0+5).map(c=>c.x0);k.dEnd=nx.length?Math.min(...nx)-2:1e9}
+  if(k.desc){const nx=ln.cells.filter(c=>c.x0>k.desc.x0+5).map(c=>c.x0),lf=ln.cells.filter(c=>c!==k.desc&&c.x1<=k.desc.x0+2).map(c=>c.x1);k.dEnd=nx.length?Math.min(...nx)-2:1e9;k.dStart=lf.length?Math.max(...lf)-6:-1e9}
   return k;
 }
 function rowFrom(ln,dm,hdr){
-  const nums=[],txt=[];
+  const nums=[],txt=[],all=[];
   ln.cells.forEach((c,i)=>{
     if(i<dm.i)return;
-    if(i===dm.i){if(dm.rest)txt.push(dm.rest);return}
+    if(i===dm.i){if(dm.rest){txt.push(dm.rest);all.push(dm.rest)}return}
     const t=c.s;
     if(/^(?:cr|dr)\.?$/i.test(t)&&nums.length){const n=nums[nums.length-1];n.cr=/cr/i.test(t);n.dr=!n.cr;return}
     const n=numTok(c);if(n){nums.push(n);return}
     if(DATEFULL.test(t)||/^\d{1,2}:\d{2}(?::\d{2})?$/.test(t))return;
-    const dt=dText(c,hdr);if(dt)txt.push(dt);   /* ref / cheque columns are not narration */
+    all.push(t);const dt=dText(c,hdr);if(dt)txt.push(dt);   /* ref / cheque columns are not narration */
   });
-  return{nums,narr:txt.join(" ")};
+  return{nums,narr:(txt.length?txt:all).join(" ")};
 }
 function acctTail(head,card){
   const cm=head.match(/card\s*(?:no\.?|number)?\s*[:\-.]?\s*((?:[\dXx*•]+[\s\-]?){3,}\d{4})\b/i),am=head.match(/(?:a\/c|account)\s*(?:no\.?|number|#)?\s*[:\-.]?\s*([Xx*•]*\d[\dXx*•\- ]{5,})/i);
@@ -286,7 +289,7 @@ function parseStatement(pages){
         const ns=ln.cells.map(numTok).filter(Boolean);
         if(ns.length){if(!last.nums.length)last.nums.push(...ns);else last=null;continue}
         const cs=ln.cells.map(c=>dText(c,last.hdr)).filter(Boolean);
-        if(!cs.length)continue;
+        if(!cs.length){if(!last.narr.trim()){const al=ln.cells.filter(c=>!numTok(c)&&!DATEFULL.test(c.s)).map(c=>c.s);if(al.length)last.narr+=" "+al.join(" ")}continue}
         last.narr+=" "+cs.join(" ");
       }
     }
@@ -341,7 +344,7 @@ function parseCsvStatement(text){
 function narrMerchant(n){
   const s=(n||"").replace(/\s+/g," ").replace(/\s*([\/\-@])\s*/g,"$1").trim();let m;
   const cl=x=>{x=x.replace(/[_.]/g," ").replace(/\s+/g," ").trim();return x?x.replace(/\b\w/g,c=>c.toUpperCase()):"Unknown"};
-  const skip=p=>/^\d+$/.test(p)||p.length<3||/^(?:upi|neft|imps|rtgs|pos|ach|ecs|nach|ib|ref|dr|cr|p2m|p2a|p2p|p2b|payment|from|phone|transfer|trf|txn|cash|chq)$/i.test(p)||/^[A-Z]{4}0[A-Z0-9]{6}$/.test(p)||/^[A-Z]{3,6}[A-Z0-9]*\d{5,}[A-Z0-9]*$/.test(p)||/^[xX*]+\d*$/.test(p);
+  const skip=p=>/^\d+$/.test(p)||p.length<3||/^(?:upi|neft|imps|rtgs|pos|ach|ecs|nach|ib|ref|dr|cr|p2m|p2a|p2p|p2b|payment|from|phone|transfer|trf|txn|cash|chq)$/i.test(p)||/^[A-Z]{4}0[A-Z0-9]{6}$/.test(p)||/^[A-Z]{1,6}[A-Z0-9]*\d{5,}[A-Z0-9]*$/.test(p)||/^[xX*]+\d*$/.test(p);
   if(/^(?:upi|imps|neft|rtgs)\b[\/\-\s]/i.test(s)){
     const parts=s.split(/[\/\-]/).map(x=>x.trim()).filter(Boolean).slice(1);
     for(const p of parts){if(skip(p))continue;return cl(p.includes("@")?p.split("@")[0]:p)}
@@ -448,6 +451,13 @@ const sameM=(ts,d)=>{const x=new Date(ts);return x.getFullYear()===d.getFullYear
 const offM=(o,b=new Date())=>new Date(b.getFullYear(),b.getMonth()+o,1);
 const byCat=a=>{const o={};a.forEach(t=>{const k=t.cat||"Uncategorized";o[k]=(o[k]||0)+t.amt});return o};
 const pending=()=>S.tx.filter(t=>t.debit&&!t.cat&&!t.own);
+const desc=t=>(t.raw||"").replace(/\s+/g," ").trim();
+const nm=t=>(t.merchant&&t.merchant!=="Unknown")?t.merchant:(desc(t).slice(0,48)||"Unknown");
+function migrateCats(){
+  if(S.mig2)return;
+  S.tx.forEach(t=>{if(t.cat==="Investments"){const c=autoCat(t.merchant)||kwNarr(t.raw||"");if(c==="Stocks / MF"||c==="Gold / Silver")t.cat=c}});
+  S.mig2=1;save();
+}
 function setCat(id,c){
   const t=S.tx.find(x=>x.id===id);if(!t||!c)return;
   t.cat=c;const k=norm(t.merchant);
@@ -490,7 +500,7 @@ function insights(){
   const wants=["Food & Dining","Shopping","Entertainment"].reduce((s,c)=>s+(cc[c]||0),0);
   if(total>0&&wants/total>.4)add("✂️","Wants outweigh needs",`Food delivery, shopping and entertainment are ${Math.round(wants/total*100)}% of spend (${inr(wants)}).`,"w");
   const small=cur.filter(t=>t.amt<300);if(small.length>=10)add("💧","Small spends are leaking money",`${small.length} payments under ₹300 added up to ${inr(sum(small))} this month.`,"w");
-  const g={};L().filter(t=>t.debit).forEach(t=>(g[norm(t.merchant)]=g[norm(t.merchant)]||[]).push(t));
+  const g={};L().filter(t=>t.debit).forEach(t=>(g[norm(nm(t))]=g[norm(nm(t))]||[]).push(t));
   const subs=[];for(const a of Object.values(g)){if(a.length<2)continue;a.sort((x,y)=>x.date-y.date);
     const gaps=a.slice(1).map((t,i)=>(t.date-a[i].date)/864e5),am=a.map(t=>t.amt);
     if(gaps.every(x=>x>=25&&x<=35)&&Math.max(...am)<=Math.min(...am)*1.1)subs.push(a[a.length-1])}
@@ -504,8 +514,8 @@ function insights(){
   return out;
 }
 
-/* ---------- mPIN lock (screen lock; default 1994 until you change it) ---------- */
-const LKEY="pp_lock";
+/* ---------- mPIN lock: a default code works until you change it in Settings → Security ---------- */
+const LKEY="pp_lock",DEF_H=["e15742b724df634679fd5791239461dda29332cf6deeba64565aa09599f7538d", "h-5x7ugokky1ag"];   /* fingerprints of the default code, not the code itself */
 let LK={on:true,h:null,s:null,n:4,f:0,u:0},PB="",HT=0;
 try{const r=localStorage.getItem(LKEY);if(r)LK=Object.assign(LK,JSON.parse(r))}catch(e){}
 const saveLK=()=>{try{localStorage.setItem(LKEY,JSON.stringify(LK))}catch(e){}};
@@ -514,33 +524,33 @@ async function hp(pin,salt){
   if(typeof crypto!=="undefined"&&crypto.subtle){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("")}
   return"h"+hash(t)+hash(t.split("").reverse().join(""));
 }
-const verifyPin=async pin=>LK.h?(await hp(pin,LK.s))===LK.h:pin==="1994";
+const verifyPin=async pin=>LK.h?(await hp(pin,LK.s))===LK.h:DEF_H.includes(await hp(pin,"pp-default"));
 function lockUI(msg){
   document.getElementById("ldots").innerHTML=Array.from({length:LK.n},(_,i)=>`<i class="${i<PB.length?"f":""}"></i>`).join("");
   document.getElementById("lmsg").textContent=msg||"Enter your mPIN";
 }
 function showLock(){PB="";document.getElementById("lock").classList.remove("off");lockUI("")}
 function hideLock(){document.getElementById("lock").classList.add("off")}
+const shake=()=>{const l=document.getElementById("lock");l.classList.remove("shake");void l.offsetWidth;l.classList.add("shake")};
+async function setPin(pin){LK.s=Math.random().toString(36).slice(2)+Date.now().toString(36);LK.h=await hp(pin,LK.s);LK.n=pin.length;LK.on=true;LK.f=0;LK.u=0;saveLK()}
 async function pk(k){
   if(Date.now()<LK.u){lockUI("Too many attempts. Wait "+Math.ceil((LK.u-Date.now())/1000)+"s");return}
   if(k==="<"){PB=PB.slice(0,-1);lockUI("");return}
   if(PB.length>=LK.n)return;
   PB+=k;lockUI("");
-  if(PB.length===LK.n){
-    const pin=PB,ok=await verifyPin(pin);PB="";
-    if(ok){LK.f=0;LK.u=0;saveLK();hideLock();lockUI("");return}
-    LK.f++;if(LK.f>=5)LK.u=Date.now()+30000*Math.pow(2,Math.min(LK.f-5,6));
-    saveLK();const l=document.getElementById("lock");l.classList.remove("shake");void l.offsetWidth;l.classList.add("shake");
-    lockUI(LK.f>=5?"Too many attempts. Try again later":"Wrong mPIN");
-  }
+  if(PB.length<LK.n)return;
+  const pin=PB;PB="";
+  if(await verifyPin(pin)){LK.f=0;LK.u=0;saveLK();hideLock();lockUI("");return}
+  LK.f++;if(LK.f>=5)LK.u=Date.now()+30000*Math.pow(2,Math.min(LK.f-5,6));
+  saveLK();shake();lockUI(LK.f>=5?"Too many attempts. Try again later":"Wrong mPIN");
 }
 async function toggleLock(el){
   if(!el.checked){
     const p=prompt("Enter your current mPIN to turn the lock off:");
     if(p==null||!(await verifyPin(p.trim()))){el.checked=true;if(p!=null)alert("Wrong mPIN");return}
-    LK.on=false;
-  }else LK.on=true;
-  saveLK();render();
+    LK.on=false;saveLK();render();return;
+  }
+  LK.on=true;saveLK();render();
 }
 async function changePin(){
   const c=prompt("Enter your current mPIN:");if(c==null)return;
@@ -548,8 +558,7 @@ async function changePin(){
   const n=prompt("Enter a new mPIN (4 to 6 digits):");if(n==null)return;
   if(!/^\d{4,6}$/.test(n.trim())){alert("The mPIN must be 4 to 6 digits.");return}
   const n2=prompt("Re-enter the new mPIN:");if(n2==null||n2.trim()!==n.trim()){alert("The two entries didn't match.");return}
-  LK.s=Math.random().toString(36).slice(2)+Date.now().toString(36);LK.h=await hp(n.trim(),LK.s);LK.n=n.trim().length;LK.on=true;LK.f=0;LK.u=0;saveLK();
-  alert("mPIN changed.");render();
+  await setPin(n.trim());alert("mPIN changed.");render();
 }
 if(document.addEventListener){
   document.addEventListener("keydown",e=>{if(document.getElementById("lock").classList.contains("off"))return;if(/^\d$/.test(e.key))pk(e.key);else if(e.key==="Backspace")pk("<")});
@@ -559,7 +568,7 @@ if(document.addEventListener){
   });
 }
 /* ---------- views ---------- */
-const ICON={"Food & Dining":"🍽️","Groceries":"🛒","Transport":"🚗","Bills & Utilities":"💡","Rent / EMI":"🏠","Shopping":"🛍️","Entertainment":"🎬","Health":"💊","Education":"📚","Subscriptions":"🔁","Transfers":"↔️","Investments":"📈","Other":"✨","Uncategorized":"🏷️"};
+const ICON={"Food & Dining":"🍽️","Groceries":"🛒","Transport":"🚗","Bills & Utilities":"💡","Rent / EMI":"🏠","Shopping":"🛍️","Entertainment":"🎬","Health":"💊","Education":"📚","Subscriptions":"🔁","Transfers":"↔️","Investments":"💼","Stocks / MF":"📈","Gold / Silver":"🪙","Other":"✨","Uncategorized":"🏷️"};
 const SV={dash:'<path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/>',tag:'<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.2"/>',ins:'<path d="M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z"/>',txs:'<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',set:'<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>'};
 const QK=["Food & Dining","Groceries","Transport","Shopping"];
 let tab="dash",q="";
@@ -573,7 +582,7 @@ function render(){
   const a=L().filter(t=>sameM(t.date,M)),deb=a.filter(t=>t.debit),sp=sum(deb),inc=sum(a.filter(t=>!t.debit)),cats=byCat(deb),P=pending().length;
   const bt=Object.values(S.budgets).reduce((x,y)=>x+(+y||0),0),mn=M.toLocaleString("en",{month:"long",year:"numeric"});
   const I=insights(),hot=I.filter(i=>i.l!=="i").slice(0,2);
-  const mer={};deb.forEach(t=>{const m=mer[t.merchant]=mer[t.merchant]||{s:0,n:0,c:t.cat};m.s+=t.amt;m.n++});
+  const mer={};deb.forEach(t=>{const kk=nm(t),m=mer[kk]=mer[kk]||{s:0,n:0,c:t.cat};m.s+=t.amt;m.n++});
   const topM=Object.entries(mer).sort((x,y)=>y[1].s-x[1].s).slice(0,5),bl=Object.entries(S.budgets).filter(([c,l])=>l>0);
   document.getElementById("dash").innerHTML=`
   ${!S.setup&&!S.tx.length?onboard():""}
@@ -581,10 +590,9 @@ function render(){
   <section class="hero"><div class="hl">Spent this month</div><div class="hv">${inr(sp)}</div>
    <div class="hrow"><div><span>Income</span><b>${inr(inc)}</b></div><div><span>Saved</span><b>${inr(inc-sp)}</b></div><div><span>Payments</span><b>${a.length}</b></div></div>
    ${bt?`<div class="pulse"><div class="pl"><span>Budget pulse</span><span>${HIDE?"••%":Math.round(sp/bt*100)+"%"} of ${inr(bt)}</span></div><div class="pb"><i style="width:${Math.min(100,sp/bt*100)}%"></i></div></div>`:""}</section>
-  ${LK.on&&!LK.h?`<div class="note" onclick="go('set')"><span>🔐</span><div><b>Change your default mPIN</b><div>You're still using the default code. Set your own in Settings.</div></div><i>›</i></div>`:""}
   ${P?`<div class="note" onclick="go('tag')"><span>🏷️</span><div><b>${P} expense${P>1?"s":""} need a tag</b><div>Teach Patrol once and it remembers</div></div><i>›</i></div>`:""}
   ${hot.map(i=>`<div class="alert ${i.l}" onclick="go('ins')"><span>${i.icon}</span><div><b>${i.t}</b><div>${i.d}</div></div></div>`).join("")}
-  ${sp?`<div class="card"><h2 class="serif">Where it went</h2>${donut(cats)}</div>`:`<div class="card empty"><div class="big">🛡️</div><b class="serif">Nothing on patrol yet</b><p>Import your messages in Settings, or load a few samples to look around.</p><button class="btn" onclick="go('set')">Open Settings</button></div>`}
+  ${sp?`<div class="card"><h2 class="serif">Where it went</h2>${donut(cats)}</div>`:`<div class="card empty"><div class="big">🛡️</div><b class="serif">Nothing on patrol yet</b><p>Import your bank statements or SMS file in Settings to get started.</p><button class="btn" onclick="go('set')">Open Settings</button></div>`}
   ${bl.length?`<div class="card"><h2 class="serif">Budgets</h2>${bl.map(([c,l])=>{const s=cats[c]||0,p=s/l*100;return`<div class="bg"><div class="row"><span>${ICON[c]||""} ${c}</span><span class="k">${inr(s)} / ${inr(l)}</span></div><div class="pb ${p>=100?"r":p>=80?"o":""}"><i style="width:${Math.min(100,p)}%"></i></div></div>`}).join("")}</div>`:""}
   ${topM.length?`<div class="card"><h2 class="serif">Top merchants</h2>${topM.map(([m,v])=>`<div class="li"><span class="ic">${ICON[v.c||"Uncategorized"]}</span><div class="grow"><b>${esc(m)}</b><div class="k">${v.n} payment${v.n>1?"s":""}</div></div><b>${inr(v.s)}</b></div>`).join("")}</div>`:""}
   ${(()=>{const bk={};deb.forEach(t=>{const k=t.bk||"SMS & other";bk[k]=(bk[k]||0)+t.amt});const e=Object.entries(bk).sort((x,y)=>y[1]-x[1]);return e.length>1?`<div class="card"><h2 class="serif">By account</h2>${e.map(([k,v])=>`<div class="li"><span class="ic">🏦</span><div class="grow"><b>${esc(k)}</b><div class="pb"><i style="width:${v/sp*100}%"></i></div></div><b>${inr(v)}</b></div>`).join("")}</div>`:""})()}
@@ -592,7 +600,7 @@ function render(){
   <div class="card"><h2 class="serif">Six-month view</h2>${bars()}</div>`;
 
   const pe=pending();
-  document.getElementById("tag").innerHTML=`<div class="hd"><h1 class="serif">Tag</h1><p>Tell Patrol once. It remembers every merchant.</p></div>`+(pe.length?pe.map(t=>`<div class="card"><div class="row"><div class="grow"><b style="font-size:16px">${esc(t.merchant)}</b><div class="k">${new Date(t.date).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}</div></div><b class="serif" style="font-size:20px">${inr(t.amt)}</b></div><div>${QK.map(c=>`<button class="chp" onclick="setCat('${t.id}','${c}')">${ICON[c]} ${c.split(" ")[0]}</button>`).join("")}</div><div style="margin-top:8px">${catSel(t.id,"")}</div></div>`).join(""):empty("🎉","All tagged","Nothing needs your attention right now."));
+  document.getElementById("tag").innerHTML=`<div class="hd"><h1 class="serif">Tag</h1><p>Tell Patrol once. It remembers every merchant.</p></div>`+(pe.length?pe.map(t=>`<div class="card"><div class="row"><div class="grow"><b style="font-size:16px">${esc(nm(t))}</b><div class="k">${new Date(t.date).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}${t.bk?" · "+esc(t.bk):""}</div></div><b class="serif" style="font-size:20px">${inr(t.amt)}</b></div>${desc(t)?`<div class="ds2">${esc(desc(t))}</div>`:""}<div>${QK.map(c=>`<button class="chp" onclick="setCat('${t.id}','${c}')">${ICON[c]} ${c.split(" ")[0]}</button>`).join("")}</div><div style="margin-top:8px">${catSel(t.id,"")}</div></div>`).join(""):empty("🎉","All tagged","Nothing needs your attention right now."));
 
   const cl={a:"a",w:"w",i:"i"};
   document.getElementById("ins").innerHTML=`<div class="hd"><h1 class="serif">Patrol</h1><p>Cautions and ways to spend smarter.</p></div>`+(I.length?I.map(i=>`<div class="alert ${cl[i.l]}" style="cursor:default"><span>${i.icon}</span><div><b>${i.t}</b><div>${i.d}</div></div></div>`).join(""):empty("🛡️","All clear","Nothing suspicious. Add more transactions and set budgets to unlock tips."));
@@ -601,19 +609,20 @@ function render(){
   drawTx();renderSet();renderNav();
 }
 function drawTx(){
-  const f=S.tx.filter(t=>!q||(t.merchant+" "+(t.cat||"")).toLowerCase().includes(q.toLowerCase())).slice(0,300);let last="",h="";
+  const ql=q.toLowerCase(),f=S.tx.filter(t=>!q||(t.merchant+" "+(t.cat||"")+" "+(t.raw||"")).toLowerCase().includes(ql)).slice(0,300);let last="",h="";
   f.forEach(t=>{const l=dayLbl(t.date);if(l!==last){h+=`<div class="dh">${l}</div>`;last=l}
-    h+=`<div class="li"><span class="ic">${t.own?"↔️":t.debit?ICON[t.cat||"Uncategorized"]:"💰"}</span><div class="grow"><b>${esc(t.merchant)}</b><div>${t.own?`<span class="k">${t.kind==="card"?"Card bill payment":"Own transfer"} · not counted</span>`:t.debit?catSel(t.id,t.cat):'<span class="k">Income</span>'}</div></div><div class="ra"><b class="${t.own?"mu":t.debit?"":"gr"}">${t.debit?"−":"+"}${inr(t.amt)}</b><br><button class="x" title="Toggle own-account transfer" onclick="toggleOwn('${t.id}')">↔</button><button class="x" onclick="del('${t.id}')" aria-label="Delete">✕</button></div></div>`});
+    const u=!t.merchant||t.merchant==="Unknown",ds=desc(t);
+    const ttl=u?`<div class="ds wr">${esc(ds||"Unknown")}</div>`:`<b>${esc(t.merchant)}</b>${ds?`<div class="ds">${esc(ds)}</div>`:""}`;
+    h+=`<div class="li"><span class="ic">${t.own?"↔️":t.debit?ICON[t.cat||"Uncategorized"]:"💰"}</span><div class="grow">${ttl}<div>${t.own?`<span class="k">${t.kind==="card"?"Card bill payment":"Own transfer"} · not counted</span>`:t.debit?catSel(t.id,t.cat):'<span class="k">Income</span>'}</div></div><div class="ra"><b class="${t.own?"mu":t.debit?"":"gr"}">${t.debit?"−":"+"}${inr(t.amt)}</b><br><button class="x" title="Toggle own-account transfer" onclick="toggleOwn('${t.id}')">↔</button><button class="x" onclick="del('${t.id}')" aria-label="Delete">✕</button></div></div>`});
   document.getElementById("txl").innerHTML=h?`<div class="card">${h}</div>`:empty("🧾","Nothing here","Import messages in Settings to fill your ledger.");
 }
 function renderSet(){
   const el=document.getElementById("set");if(el.dataset.f&&tab==="set")return;
   el.innerHTML=`<div class="hd"><h1 class="serif">Settings</h1><p>Import, budgets and backup.</p></div>
   <div class="card"><h2 class="serif">Import statements &amp; messages</h2><p class="mu" style="margin-top:0">Bank or credit-card statements (PDF/CSV, several banks at once) and SMS files (messages.txt / backfill.txt). Duplicates are skipped.</p><label class="k"><input type="checkbox" id="six" checked> Only the last 6 months</label><br><br><input type="file" multiple accept=".pdf,.csv,.txt,application/pdf,text/csv,text/plain" onchange="doImport(this.files,document.getElementById('six').checked?6:0)"></div>
-  <div class="card"><h2 class="serif">Paste a message</h2><textarea id="paste" placeholder="Paste a bank SMS here"></textarea><div class="row" style="margin-top:10px"><button class="btn" onclick="const n=importText(document.getElementById('paste').value);alert(n.added?'Added':'No debit/credit amount found');document.getElementById('paste').value=''">Add</button><button onclick="samples()">Load samples</button></div></div>
   <div class="card"><h2 class="serif">My bank accounts</h2><p class="mu" style="margin-top:0">Add the last 4 or 5 digits of your own accounts and cards. Money moving between them is not counted as spending or income.</p><div class="row"><input id="acin" inputmode="numeric" maxlength="5" placeholder="e.g. 1234" style="flex:1"><button class="btn" onclick="addAcct()">Add</button></div><div>${AC().map(a=>`<span class="chp" style="display:inline-block">••${a} <button class="x" onclick="rmAcct('${a}')" aria-label="Remove">✕</button></span>`).join("")}</div><p class="k">Detected from SMS text like "A/c XX1234". If a transfer slips through, tap ↔ on it in the Ledger.</p></div>
-  <div class="card"><h2 class="serif">Monthly budgets (₹)</h2>${Object.keys(CATS).filter(c=>!["Transfers","Investments"].includes(c)).map(c=>`<div class="row" style="margin-bottom:8px"><span>${ICON[c]} ${c}</span><input type="${HIDE?"password":"number"}" inputmode="numeric" style="width:110px;text-align:right" value="${S.budgets[c]||""}" placeholder="0" onchange="S.budgets['${c}']=+this.value;save();render()"></div>`).join("")}</div>
-  <div class="card"><h2 class="serif">Security</h2><div class="row" style="margin-bottom:12px"><span>Ask for mPIN when opening</span><input type="checkbox" ${LK.on?"checked":""} onchange="toggleLock(this)"></div><button onclick="changePin()">Change mPIN</button><p class="k">The mPIN locks the screen when the app opens and after it has been away for a minute. It stops casual snooping but does not encrypt the data stored in your browser.</p></div>
+  <div class="card"><h2 class="serif">Monthly budgets (₹)</h2>${Object.keys(CATS).filter(c=>!["Transfers","Investments","Stocks / MF","Gold / Silver"].includes(c)).map(c=>`<div class="row" style="margin-bottom:8px"><span>${ICON[c]} ${c}</span><input type="${HIDE?"password":"number"}" inputmode="numeric" style="width:110px;text-align:right" value="${S.budgets[c]||""}" placeholder="0" onchange="S.budgets['${c}']=+this.value;save();render()"></div>`).join("")}</div>
+  <div class="card"><h2 class="serif">Security</h2><div class="row" style="margin-bottom:12px"><span>Ask for mPIN when opening</span><input type="checkbox" ${LK.on?"checked":""} onchange="toggleLock(this)"></div><button onclick="changePin()">Change mPIN</button><p class="k">The mPIN locks the screen when the app opens and after it has been away for a minute. Until you change it, the default code is used. It stops casual snooping but does not encrypt the data stored in your browser.</p></div>
   <div class="card"><h2 class="serif">Backup</h2><div class="row"><button onclick="exportJ()">Export</button><button onclick="document.getElementById('rf').click()">Restore</button><button onclick="if(confirm('Delete all Paisa Patrol data on this device?')){S={tx:[],rules:{},budgets:{},seen:{},accts:[]};save();render()}">Clear all</button></div><input id="rf" type="file" accept=".json" class="hide" onchange="readFile(this.files[0],t=>{try{S=Object.assign({tx:[],rules:{},budgets:{},seen:{}},JSON.parse(t));save();render()}catch(e){alert('Invalid backup')}})"><p class="k">Your data lives only in this browser. Export a backup now and then, since clearing Safari data erases it.</p></div>`;
   el.dataset.f=1;
 }
@@ -630,13 +639,8 @@ function rmAcct(a){S.accts=AC().filter(x=>x!==a);reconcile();save();rs()}
 function del(id){S.tx=S.tx.filter(t=>t.id!==id);save();render()}
 function readFile(f,cb){if(!f)return;const r=new FileReader();r.onload=()=>cb(r.result);r.readAsText(f)}
 function exportJ(){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(S)],{type:"application/json"}));a.download="paisapatrol-backup.json";a.click()}
-function samples(){
-  const n=new Date(),iso=d=>new Date(n.getFullYear(),n.getMonth(),d,12).toISOString();
-  [[2,"Rs.480.00 debited from A/c XX1234 to VPA swiggy@icici. UPI Ref 4455"],[3,"INR 2,300 spent on HDFC Card XX9876 at AMAZON on 03-11."],[5,"Rs 650 paid to Ravi Kirana via UPI. Ref 8899"],[1,"Rs.50,000.00 credited to A/c XX1234 from ACME CORP SALARY."],[6,"Rs.199 debited towards NETFLIX."],[8,"Rs 120 paid to Chai Point via UPI."]]
-   .forEach(([d,m])=>addMsg(m,iso(Math.min(d,n.getDate()))));
-  S.tx.sort((a,b)=>b.date-a.date);S.setup=1;save();render();
-}
 try{const c=document.createElement("canvas");c.width=c.height=180;const x=c.getContext("2d"),g=x.createLinearGradient(0,0,180,180);g.addColorStop(0,"#14705d");g.addColorStop(1,"#0a3f35");x.fillStyle=g;x.fillRect(0,0,180,180);x.fillStyle="#e3c06a";x.font="bold 112px Georgia,serif";x.textAlign="center";x.textBaseline="middle";x.fillText("₹",90,98);const l=document.createElement("link");l.rel="apple-touch-icon";l.href=c.toDataURL("image/png");document.head.appendChild(l)}catch(e){}
 if(LK.on)showLock();else hideLock();
+migrateCats();
 render();go("dash");
 </script></body></html>
