@@ -276,23 +276,39 @@ const BANKS=[["HDFC",/hdfc/i],["SBI",/state bank of india|\bsbi\b/i],["ICICI",/i
 const bankOf=h=>(BANKS.map(([n,r])=>[n,h.search(r)]).filter(x=>x[1]>=0).sort((a,b)=>a[1]-b[1])[0]||[""])[0];
 function parseStatement(pages){
   const PL=pages.map(toLines),head=PL.flat().map(l=>l.text).join("\n").slice(0,3000);
-  const rows=[];let hdr=null,last=null,opening=null;
+  const rows=[];let hdr=null,opening=null;
   const FOOT=/^(?:page\s*\d|statement summary|total\b|closing balance|this is a computer|end of statement|registered office|gstin|disclaimer|generated|unless|contents|branch|call\b|visit\b|www\.|email|\*{3,}|nomination|account branch)/i;
-  for(const lines of PL){last=null;
+  const attach=(r,ln)=>{                       /* add a text/number line to a row */
+    const ns=ln.cells.map(numTok).filter(Boolean);
+    if(ns.length){if(!r.nums.length)r.nums.push(...ns);return}
+    const cs=ln.cells.map(c=>dText(c,r.hdr)).filter(Boolean);
+    if(cs.length)r.narr+=" "+cs.join(" ");
+    else if(!r.narr.trim()){const al=ln.cells.filter(c=>!DATEFULL.test(c.s)).map(c=>c.s);if(al.length)r.narr+=" "+al.join(" ")}
+  };
+  for(const lines of PL){
+    let prev=null,pend=[],hy=null;
+    /* Text-only lines sitting between two rows can belong to either one (narration may wrap below the date line,
+       sit above it, or be centred on it). The biggest vertical gap is the row boundary; ties go to the row above. */
+    const flush=next=>{
+      if(!pend.length)return;
+      const top=prev?prev.y:hy;
+      if(!next){if(prev)pend.forEach(l=>attach(prev,l))}
+      else if(top!=null){
+        const pts=[top,...pend.map(l=>l.y),next.y];let m=0,mg=-1;
+        for(let j=0;j<pts.length-1;j++){const g=pts[j+1]-pts[j];if(g>=mg-.5){if(g>mg)mg=g;m=j}}
+        pend.forEach((l,j)=>{if(j<m){if(prev)attach(prev,l)}else attach(next,l)});
+      }
+      pend=[];
+    };
     for(const ln of lines){
       const dm=dateAt(ln.cells);
-      if(dm){const r=rowFrom(ln,dm,hdr);r.date=pDate(dm.str);r.hdr=hdr;if(isNaN(r.date)){last=null;continue}rows.push(r);last=r;continue}
-      const k=hdrKeys(ln);if(k){hdr=k;last=null;continue}
-      if(/opening balance|balance\s*b\/f|brought forward/i.test(ln.text)){const om=ln.text.match(/([\d,]+\.\d{2})/);if(om&&opening==null)opening=parseFloat(om[1].replace(/,/g,""));last=null;continue}
-      if(FOOT.test(ln.text.trim())){last=null;continue}
-      if(last){
-        const ns=ln.cells.map(numTok).filter(Boolean);
-        if(ns.length){if(!last.nums.length)last.nums.push(...ns);else last=null;continue}
-        const cs=ln.cells.map(c=>dText(c,last.hdr)).filter(Boolean);
-        if(!cs.length){if(!last.narr.trim()){const al=ln.cells.filter(c=>!numTok(c)&&!DATEFULL.test(c.s)).map(c=>c.s);if(al.length)last.narr+=" "+al.join(" ")}continue}
-        last.narr+=" "+cs.join(" ");
-      }
+      if(dm){const r=rowFrom(ln,dm,hdr);r.date=pDate(dm.str);r.hdr=hdr;r.y=ln.y;if(isNaN(r.date))continue;flush(r);rows.push(r);prev=r;continue}
+      const k=hdrKeys(ln);if(k){flush(null);hdr=k;hy=ln.y;prev=null;pend=[];continue}
+      if(/opening balance|balance\s*b\/f|brought forward/i.test(ln.text)){const om=ln.text.match(/([\d,]+\.\d{2})/);if(om&&opening==null)opening=parseFloat(om[1].replace(/,/g,""));continue}
+      if(FOOT.test(ln.text.trim())){flush(null);prev=null;continue}
+      if(prev||hy!=null)pend.push(ln);
     }
+    flush(null);
   }
   const R=rows.filter(r=>r.nums.length),multi=R.filter(r=>r.nums.length>=2).length,bankStyle=R.length>0&&multi>=R.length*.6;
   const out={rows:[],bank:bankOf(head),tail:acctTail(head,!bankStyle),type:bankStyle?"bank":"card",chk:[0,0]};
@@ -619,7 +635,7 @@ function drawTx(){
 function renderSet(){
   const el=document.getElementById("set");if(el.dataset.f&&tab==="set")return;
   el.innerHTML=`<div class="hd"><h1 class="serif">Settings</h1><p>Import, budgets and backup.</p></div>
-  <div class="card"><h2 class="serif">Import statements &amp; messages</h2><p class="mu" style="margin-top:0">Bank or credit-card statements (PDF/CSV, several banks at once) and SMS files (messages.txt / backfill.txt). Duplicates are skipped.</p><label class="k"><input type="checkbox" id="six" checked> Only the last 6 months</label><br><br><input type="file" multiple accept=".pdf,.csv,.txt,application/pdf,text/csv,text/plain" onchange="doImport(this.files,document.getElementById('six').checked?6:0)"></div>
+  <div class="card"><h2 class="serif">Import statements &amp; messages</h2><p class="mu" style="margin-top:0">Bank or credit-card statements (PDF/CSV, several banks at once) and SMS files (messages.txt / backfill.txt). Duplicates are skipped.</p><label class="k"><input type="checkbox" id="six" checked> Only the last 6 months</label><br><br><input type="file" multiple accept=".pdf,.csv,.txt,application/pdf,text/csv,text/plain" onchange="doImport(this.files,document.getElementById('six').checked?6:0)"><div style="margin-top:14px"><button onclick="clearStatements()">Remove imported statement rows</button><p class="k" style="margin-bottom:0">Use this before importing a statement again. Your tags, budgets, accounts and SMS transactions stay.</p></div></div>
   <div class="card"><h2 class="serif">My bank accounts</h2><p class="mu" style="margin-top:0">Add the last 4 or 5 digits of your own accounts and cards. Money moving between them is not counted as spending or income.</p><div class="row"><input id="acin" inputmode="numeric" maxlength="5" placeholder="e.g. 1234" style="flex:1"><button class="btn" onclick="addAcct()">Add</button></div><div>${AC().map(a=>`<span class="chp" style="display:inline-block">••${a} <button class="x" onclick="rmAcct('${a}')" aria-label="Remove">✕</button></span>`).join("")}</div><p class="k">Detected from SMS text like "A/c XX1234". If a transfer slips through, tap ↔ on it in the Ledger.</p></div>
   <div class="card"><h2 class="serif">Monthly budgets (₹)</h2>${Object.keys(CATS).filter(c=>!["Transfers","Investments","Stocks / MF","Gold / Silver"].includes(c)).map(c=>`<div class="row" style="margin-bottom:8px"><span>${ICON[c]} ${c}</span><input type="${HIDE?"password":"number"}" inputmode="numeric" style="width:110px;text-align:right" value="${S.budgets[c]||""}" placeholder="0" onchange="S.budgets['${c}']=+this.value;save();render()"></div>`).join("")}</div>
   <div class="card"><h2 class="serif">Security</h2><div class="row" style="margin-bottom:12px"><span>Ask for mPIN when opening</span><input type="checkbox" ${LK.on?"checked":""} onchange="toggleLock(this)"></div><button onclick="changePin()">Change mPIN</button><p class="k">The mPIN locks the screen when the app opens and after it has been away for a minute. Until you change it, the default code is used. It stops casual snooping but does not encrypt the data stored in your browser.</p></div>
@@ -633,6 +649,12 @@ function renderNav(){
 function go(t){tab=t;["dash","tag","ins","txs","set"].forEach(k=>{const e=document.getElementById(k);e.classList.toggle("hide",k!==t);if(k===t){e.classList.remove("fade");void e.offsetWidth;e.classList.add("fade")}});renderNav();scrollTo(0,0)}
 function rs(){document.getElementById("set").dataset.f="";render()}
 function togglePriv(){HIDE=!HIDE;rs()}
+function clearStatements(){
+  const n=S.tx.filter(t=>t.src==="st").length;
+  if(!n){alert("There are no imported statement rows to remove.");return}
+  if(!confirm("Remove "+n+" transactions that came from statements? Your tags, budgets, accounts and SMS transactions are kept. Then import the statements again.")) return;
+  S.tx=S.tx.filter(t=>t.src!=="st");S.tx.forEach(t=>{delete t.mt});reconcile();save();render();
+}
 function toggleOwn(id){const t=S.tx.find(x=>x.id===id);if(!t)return;const v=!t.own;[t,S.tx.find(x=>x.id===t.pr)].forEach(x=>{if(x){x.own=v;x.m=1}});save();render()}
 function addAcct(){const v=document.getElementById("acin").value.trim();if(!/^\d{4,5}$/.test(v)){alert("Enter the last 4 or 5 digits of the account");return}if(!AC().includes(v))AC().push(v);reconcile();save();rs()}
 function rmAcct(a){S.accts=AC().filter(x=>x!==a);reconcile();save();rs()}
