@@ -273,45 +273,33 @@ function acctTail(head,card){
   const m=card?(cm||am):(am||cm);if(!m)return"";const d=m[1].replace(/\D/g,"");return d.length>=4?d.slice(-4):"";
 }
 const BANKS=[["HDFC",/hdfc/i],["SBI",/state bank of india|\bsbi\b/i],["ICICI",/icici/i],["Axis",/axis bank/i],["Kotak",/kotak/i],["Yes Bank",/yes bank/i],["IDFC First",/idfc/i],["IndusInd",/indusind/i],["PNB",/punjab national|\bpnb\b/i],["Canara",/canara/i],["Bank of Baroda",/bank of baroda/i],["Union Bank",/union bank/i],["Federal",/federal bank/i],["RBL",/\brbl\b/i],["AU",/au small finance/i]];
+const IFSC={UTIB:"Axis",HDFC:"HDFC",SBIN:"SBI",ICIC:"ICICI",KKBK:"Kotak",YESB:"Yes Bank",IDFB:"IDFC First",INDB:"IndusInd",PUNB:"PNB",CNRB:"Canara",BARB:"Bank of Baroda",UBIN:"Union Bank",FDRL:"Federal",RATN:"RBL"};
+const ifscBank=h=>{const m=h.match(/IFS?C\s*(?:Code)?\s*[:\-]?\s*([A-Za-z]{4})0[A-Za-z0-9]{6}/i);return m?(IFSC[m[1].toUpperCase()]||""):""};
 const bankOf=h=>(BANKS.map(([n,r])=>[n,h.search(r)]).filter(x=>x[1]>=0).sort((a,b)=>a[1]-b[1])[0]||[""])[0];
 function parseStatement(pages){
   const PL=pages.map(toLines),head=PL.flat().map(l=>l.text).join("\n").slice(0,3000);
-  const rows=[];let hdr=null,opening=null;
+  const rows=[],meta=[];let hdr=null,last=null,opening=null;
   const FOOT=/^(?:page\s*\d|statement summary|total\b|closing balance|this is a computer|end of statement|registered office|gstin|disclaimer|generated|unless|contents|branch|call\b|visit\b|www\.|email|\*{3,}|nomination|account branch)/i;
-  const attach=(r,ln)=>{                       /* add a text/number line to a row */
-    const ns=ln.cells.map(numTok).filter(Boolean);
-    if(ns.length){if(!r.nums.length)r.nums.push(...ns);return}
-    const cs=ln.cells.map(c=>dText(c,r.hdr)).filter(Boolean);
-    if(cs.length)r.narr+=" "+cs.join(" ");
-    else if(!r.narr.trim()){const al=ln.cells.filter(c=>!DATEFULL.test(c.s)).map(c=>c.s);if(al.length)r.narr+=" "+al.join(" ")}
-  };
-  for(const lines of PL){
-    let prev=null,pend=[],hy=null;
-    /* Text-only lines sitting between two rows can belong to either one (narration may wrap below the date line,
-       sit above it, or be centred on it). The biggest vertical gap is the row boundary; ties go to the row above. */
-    const flush=next=>{
-      if(!pend.length)return;
-      const top=prev?prev.y:hy;
-      if(!next){if(prev)pend.forEach(l=>attach(prev,l))}
-      else if(top!=null){
-        const pts=[top,...pend.map(l=>l.y),next.y];let m=0,mg=-1;
-        for(let j=0;j<pts.length-1;j++){const g=pts[j+1]-pts[j];if(g>=mg-.5){if(g>mg)mg=g;m=j}}
-        pend.forEach((l,j)=>{if(j<m){if(prev)attach(prev,l)}else attach(next,l)});
-      }
-      pend=[];
-    };
+  for(const lines of PL){last=null;
     for(const ln of lines){
       const dm=dateAt(ln.cells);
-      if(dm){const r=rowFrom(ln,dm,hdr);r.date=pDate(dm.str);r.hdr=hdr;r.y=ln.y;if(isNaN(r.date))continue;flush(r);rows.push(r);prev=r;continue}
-      const k=hdrKeys(ln);if(k){flush(null);hdr=k;hy=ln.y;prev=null;pend=[];continue}
-      if(/opening balance|balance\s*b\/f|brought forward/i.test(ln.text)){const om=ln.text.match(/([\d,]+\.\d{2})/);if(om&&opening==null)opening=parseFloat(om[1].replace(/,/g,""));continue}
-      if(FOOT.test(ln.text.trim())){flush(null);prev=null;continue}
-      if(prev||hy!=null)pend.push(ln);
+      if(dm){const r=rowFrom(ln,dm,hdr);r.date=pDate(dm.str);r.hdr=hdr;r.ly=ln.y;if(isNaN(r.date)){last=null;meta.push(ln.text);continue}rows.push(r);last=r;continue}
+      const k=hdrKeys(ln);if(k){hdr=k;last=null;meta.push(ln.text);continue}
+      if(/opening balance|balance\s*b\/f|brought forward/i.test(ln.text)){const om=ln.text.match(/([\d,]+\.\d{2})/);if(om&&opening==null)opening=parseFloat(om[1].replace(/,/g,""));last=null;meta.push(ln.text);continue}
+      if(FOOT.test(ln.text.trim())){last=null;meta.push(ln.text);continue}
+      if(last&&ln.y-last.ly>17)last=null;     /* too far below the row: footer / next section, not its description */
+      if(last){
+        const ns=ln.cells.map(numTok).filter(Boolean);
+        if(ns.length){if(!last.nums.length){last.nums.push(...ns);last.ly=ln.y}else last=null;continue}
+        const cs=ln.cells.map(c=>dText(c,last.hdr)).filter(Boolean);
+        if(!cs.length){if(!last.narr.trim()){const al=ln.cells.filter(c=>!numTok(c)&&!DATEFULL.test(c.s)).map(c=>c.s);if(al.length)last.narr+=" "+al.join(" ")}continue}
+        last.narr+=" "+cs.join(" ");last.ly=ln.y;
+      }else meta.push(ln.text);
     }
-    flush(null);
   }
   const R=rows.filter(r=>r.nums.length),multi=R.filter(r=>r.nums.length>=2).length,bankStyle=R.length>0&&multi>=R.length*.6;
-  const out={rows:[],bank:bankOf(head),tail:acctTail(head,!bankStyle),type:bankStyle?"bank":"card",chk:[0,0]};
+  const mt=meta.join("\n");
+  const out={rows:[],bank:ifscBank(mt)||bankOf(mt),tail:acctTail(mt,!bankStyle)||acctTail(head,!bankStyle),type:bankStyle?"bank":"card",chk:[0,0],skipped:0};
   const nearest=(h,t)=>{if(!h)return null;const d=c=>c?Math.min(Math.abs((t.x0+t.x1)/2-(c.x0+c.x1)/2),Math.abs(t.x1-c.x1),Math.abs(t.x0-c.x0)):1e9;
     const dd=d(h.debit),dc=d(h.credit);return dd>=1e9&&dc>=1e9?null:(dd<=dc?"D":"C")};
   const kw=n=>/\b(?:salary|credit|received|refund|reversal|cashback|interest|deposit|payment\s+(?:received|thank)|thank you)\b|\bneft cr\b|\bby transfer\b/i.test(n);
@@ -319,10 +307,21 @@ function parseStatement(pages){
   if(bankStyle){
     const S2=R.filter(r=>r.nums.length>=2).map(r=>{const n=r.nums,rest=n.slice(0,-1).filter(x=>x.v>0);return{r,bal:n[n.length-1].v,a:rest.length?rest[rest.length-1]:null}}).filter(x=>x.a);
     const chk=(p,a,b)=>p==null?null:Math.abs(p-a-b)<.011?"D":Math.abs(p+a-b)<.011?"C":null;
+    /* A real transaction fits the running balance (previous balance -/+ amount = this balance).
+       Rows from other tables (reward points, summaries, ...) don't, so they are dropped. */
+    const Lk=(i,j)=>i>=0&&j>=0&&i<S2.length&&j<S2.length&&chk(S2[i].bal,S2[j].a.v,S2[j].bal);
+    let cur=opening;
     S2.forEach((x,i)=>{
       const pv=i>0?S2[i-1].bal:opening,nx=i<S2.length-1?S2[i+1].bal:null;
-      let dir=chk(pv,x.a.v,x.bal)||chk(nx,x.a.v,x.bal);out.chk[1]++;if(dir)out.chk[0]++;
-      if(!dir)dir=nearest(x.r.hdr,x.a)||(x.a.cr?"C":x.a.dr?"D":(kw(x.r.narr)?"C":"D"));
+      x.dir=chk(pv,x.a.v,x.bal)||chk(nx,x.a.v,x.bal)||chk(cur,x.a.v,x.bal);
+      x.ok=!!(x.dir||Lk(i,i+1)||Lk(i,i-1));
+      if(x.ok)cur=x.bal;
+    });
+    const okN=S2.filter(x=>x.ok).length,drop=S2.length>=3&&okN>=S2.length*.6;
+    out.chk=[okN,S2.length];out.skipped=drop?S2.length-okN:0;
+    S2.forEach(x=>{
+      if(drop&&!x.ok)return;
+      const dir=x.dir||nearest(x.r.hdr,x.a)||(x.a.cr?"C":x.a.dr?"D":(kw(x.r.narr)?"C":"D"));
       out.rows.push({date:x.r.date,narr:clean(x.r.narr),amt:x.a.v,debit:dir==="D",bal:x.bal});
     });
   }else{
@@ -429,7 +428,7 @@ async function doImport(fl,months){
         if(!res.rows.length){notes.push(`• ${f.name}: no transactions found (layout not recognised)`);continue}
         if(!res.tail){const a=prompt(`Couldn't find the account number in "${f.name}".\nEnter its last 4 digits (or leave blank):`);if(a&&/^\d{4,5}$/.test(a.trim()))res.tail=a.trim()}
         const s=ingestStatement(res,months);for(const k in tot)tot[k]+=s[k]||0;if(s.newAc)newAc.push(res.tail);
-        notes.push(`• ${f.name}: ${res.bank||"statement"}${res.type==="card"?" card":""}${res.tail?" ••"+res.tail:""}, ${s.added} new of ${res.rows.length}${res.chk[1]?`, balance check ${res.chk[0]}/${res.chk[1]}`:""}`);
+        notes.push(`• ${f.name}: ${res.bank||"statement"}${res.type==="card"?" card":""}${res.tail?" ••"+res.tail:""}, ${s.added} new of ${res.rows.length}${res.chk[1]?`, balance check ${res.chk[0]}/${res.chk[1]}`:""}${res.skipped?`, ${res.skipped} non-transaction rows ignored`:""}`);
       }else{const s=importText(await f.text(),months);for(const k in tot)tot[k]+=s[k]||0;notes.push(`• ${f.name}: ${s.added} message(s) added`)}
     }catch(e){notes.push(`• ${f.name}: ${e&&e.message==="cancelled"?"skipped (no password)":(e&&e.message)||"could not be read"}`)}
   }
