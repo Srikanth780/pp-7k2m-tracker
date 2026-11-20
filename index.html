@@ -258,7 +258,7 @@ function hdrKeys(ln){
   });
   const n=Object.keys(k).length;
   if(!(n>=3&&(k.date||k.desc)&&(k.debit||k.credit||k.amt||k.bal)))return null;
-  if(k.desc){const nx=ln.cells.filter(c=>c.x0>k.desc.x0+5).map(c=>c.x0),lf=ln.cells.filter(c=>c!==k.desc&&c.x1<=k.desc.x0+2).map(c=>c.x1);k.dEnd=nx.length?Math.min(...nx)-2:1e9;k.dStart=lf.length?Math.max(...lf)-6:-1e9}
+  if(k.desc){const nx=ln.cells.filter(c=>c.x0>k.desc.x0+5).map(c=>c.x0),lf=ln.cells.filter(c=>c!==k.desc&&c.x1<=k.desc.x0+2&&/date|\bdt\b/i.test(c.s)).map(c=>c.x1);k.dEnd=nx.length?Math.min(...nx)-2:1e9;k.dStart=lf.length?Math.max(...lf)-6:-1e9}
   return k;
 }
 function rowFrom(ln,dm,hdr){
@@ -270,7 +270,7 @@ function rowFrom(ln,dm,hdr){
     if(/^(?:cr|dr)\.?$/i.test(t)&&nums.length){const n=nums[nums.length-1];n.cr=/cr/i.test(t);n.dr=!n.cr;return}
     const n=numTok(c);if(n){nums.push(n);return}
     if(DATEFULL.test(t)||/^\d{1,2}:\d{2}(?::\d{2})?$/.test(t))return;
-    all.push(t);const dt=dText(c,hdr);if(dt)txt.push(dt);   /* ref / cheque columns are not narration */
+    if(!nums.length)all.push(t);const dt=dText(c,hdr);if(dt)txt.push(dt);   /* ref / cheque columns are not narration */
   });
   return{nums,narr:(txt.length?txt:all).join(" ")};
 }
@@ -284,24 +284,53 @@ const ifscBank=h=>{const m=h.match(/IFS?C\s*(?:Code)?\s*[:\-]?\s*([A-Za-z]{4})0[
 const bankOf=h=>(BANKS.map(([n,r])=>[n,h.search(r)]).filter(x=>x[1]>=0).sort((a,b)=>a[1]-b[1])[0]||[""])[0];
 function parseStatement(pages){
   const PL=pages.map(toLines),head=PL.flat().map(l=>l.text).join("\n").slice(0,3000);
-  const rows=[],meta=[];let hdr=null,last=null,opening=null;
+  const rows=[],meta=[],groups=[];let hdr=null,opening=null;
   const FOOT=/^(?:page\s*\d|statement summary|total\b|closing balance|this is a computer|end of statement|registered office|gstin|disclaimer|generated|unless|contents|branch|call\b|visit\b|www\.|email|\*{3,}|nomination|account branch)/i;
-  for(const lines of PL){last=null;
+  const attach=(r,ln)=>{                          /* add one text/number line to a row */
+    const ns=ln.cells.map(numTok).filter(Boolean);
+    if(ns.length){if(!r.nums.length)r.nums.push(...ns);return}
+    const cs=ln.cells.map(c=>dText(c,r.hdr)).filter(Boolean);
+    if(cs.length)r.narr+=" "+cs.join(" ");
+    else if(!r.narr.trim()){const al=ln.cells.filter(c=>!DATEFULL.test(c.s)).map(c=>c.s);if(al.length)r.narr+=" "+al.join(" ")}
+  };
+  for(const lines of PL){
+    let prev=null,pend=[],hy=null;
+    const close=next=>{if(pend.length)groups.push({prev,pend,next,top:prev?prev.y:hy});pend=[]};
     for(const ln of lines){
       const dm=dateAt(ln.cells);
-      if(dm){const r=rowFrom(ln,dm,hdr);r.date=pDate(dm.str);r.hdr=hdr;r.ly=ln.y;if(isNaN(r.date)){last=null;meta.push(ln.text);continue}rows.push(r);last=r;continue}
-      const k=hdrKeys(ln);if(k){hdr=k;last=null;meta.push(ln.text);continue}
-      if(/opening balance|balance\s*b\/f|brought forward/i.test(ln.text)){const om=ln.text.match(/([\d,]+\.\d{2})/);if(om&&opening==null)opening=parseFloat(om[1].replace(/,/g,""));last=null;meta.push(ln.text);continue}
-      if(FOOT.test(ln.text.trim())){last=null;meta.push(ln.text);continue}
-      if(last&&ln.y-last.ly>17)last=null;     /* too far below the row: footer / next section, not its description */
-      if(last){
-        const ns=ln.cells.map(numTok).filter(Boolean);
-        if(ns.length){if(!last.nums.length){last.nums.push(...ns);last.ly=ln.y}else last=null;continue}
-        const cs=ln.cells.map(c=>dText(c,last.hdr)).filter(Boolean);
-        if(!cs.length){if(!last.narr.trim()){const al=ln.cells.filter(c=>!numTok(c)&&!DATEFULL.test(c.s)).map(c=>c.s);if(al.length)last.narr+=" "+al.join(" ")}continue}
-        last.narr+=" "+cs.join(" ");last.ly=ln.y;
-      }else meta.push(ln.text);
+      if(dm){const r=rowFrom(ln,dm,hdr);r.date=pDate(dm.str);r.hdr=hdr;r.y=ln.y;if(isNaN(r.date)){meta.push(ln.text);continue}close(r);rows.push(r);prev=r;continue}
+      const k=hdrKeys(ln);if(k){close(null);hdr=k;hy=ln.y;prev=null;pend=[];meta.push(ln.text);continue}
+      if(/opening balance|balance\s*b\/f|brought forward/i.test(ln.text)){const om=ln.text.match(/([\d,]+\.\d{2})/);if(om&&opening==null)opening=parseFloat(om[1].replace(/,/g,""));meta.push(ln.text);continue}
+      if(FOOT.test(ln.text.trim())){close(null);prev=null;hy=null;meta.push(ln.text);continue}
+      if(prev||hy!=null)pend.push(ln);else meta.push(ln.text);
     }
+    close(null);
+  }
+  /* Description lines between two rows can belong to either: wrapped below the date line (date on the FIRST line),
+     or above it (date on the LAST line, as in Axis statements), or centred. The biggest vertical gap is the row
+     boundary. When two gaps are about equal, a line that starts like a narration (UPI/..., NEFT..., POS ...) begins
+     the next row; otherwise the layout style seen in the clear cases decides. */
+  const START=/^(?:UPI|IMPS|NEFT|RTGS|POS|ATM|ACH|ECS|NACH|BIL|CHQ|CLG|TFR|MB|IB|EMI|SB|INT|CASH|REV)(?=[\/\-: ]|$)/i;
+  const starts=l=>{const t=(l.cells[0]&&l.cells[0].s)||"";return START.test(t)||/^[A-Z]{3,5}\/[A-Z0-9]{2,5}\/\d{6,}/.test(t)};
+  let nDown=0,nUp=0;
+  for(const g of groups){
+    if(!g.next)continue;
+    const pts=[g.top,...g.pend.map(l=>l.y),g.next.y],gp=pts.slice(1).map((v,i)=>v-pts[i]),mx=Math.max(...gp),cand=[];
+    gp.forEach((v,i)=>{if(v>=mx-1.5)cand.push(i)});
+    if(cand.length===1){g.m=cand[0];if(g.m===0)nDown++;else if(g.m===g.pend.length)nUp++}else g.cand=cand;
+  }
+  for(const g of groups){
+    if(!g.next||g.m!=null)continue;
+    const si=g.pend.findIndex(starts);
+    g.m=(si>=0&&g.cand.includes(si))?si:(nDown>nUp?g.cand[0]:g.cand[g.cand.length-1]);
+  }
+  for(const g of groups){
+    if(!g.next){                                   /* lines after the last row on a page: only those hugging it */
+      let py=g.prev?g.prev.y:null;
+      for(const l of g.pend){if(py==null||l.y-py>17){meta.push(l.text);continue}attach(g.prev,l);py=l.y}
+      continue;
+    }
+    g.pend.forEach((l,j)=>{if(j<g.m){if(g.prev)attach(g.prev,l);else meta.push(l.text)}else attach(g.next,l)});
   }
   const R=rows.filter(r=>r.nums.length),multi=R.filter(r=>r.nums.length>=2).length,bankStyle=R.length>0&&multi>=R.length*.6;
   const mt=meta.join("\n");
